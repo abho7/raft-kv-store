@@ -1,100 +1,116 @@
-# ⚡ RAFT KV STORE ⚡
-### *A Bulletproof, Self-Healing, Battle-Tested Distributed Database Engine — Built From Absolute Zero*
+# Raft KV Store
 
 [![tests](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/tests.yml)
-![Status](https://img.shields.io/badge/status-UNKILLABLE-brightgreen)
-![Tests](https://img.shields.io/badge/tests-23%2F23_PASSING-success)
-![Dependencies](https://img.shields.io/badge/core_dependencies-ZERO-blue)
-![Chaos](https://img.shields.io/badge/survives-LEADER%20ASSASSINATION-red)
 
-> ### 💥 KILL THE LEADER. WATCH IT DIE. WATCH IT DON'T EVEN MATTER. 💥
+A linearizable-writes, replicated key-value store implementing the Raft
+consensus protocol (Ongaro & Ousterhout, 2014) from first principles:
+leader election via randomized timeout-triggered `RequestVote` RPCs,
+log replication via `AppendEntries` with prev-log consistency checks,
+and commit-index advancement under the current-term-only safety
+constraint from Figure 8 of the paper.
 
-**This is not a toy.** This is not a "Raft-inspired" simplification with the hard parts hand-waved away. This is a **from-the-ground-up, paper-faithful implementation of the Raft consensus algorithm** — the exact same battle-hardened protocol powering **etcd**, **CockroachDB**, **Consul**, and the beating heart of half the world's Kubernetes clusters — engineered, stress-tested, and **proven unbreakable** under real crashes, real network partitions, and real adversarial chaos.
+**Guarantee proven, not asserted:** under `f` node failures in a cluster
+of `2f+1`, the system retains availability and never violates State
+Machine Safety — no two nodes ever apply divergent commands at the same
+log index, and no committed entry is ever lost. Verified across 23
+tests spanning both a deterministic discrete-event simulation harness
+and a real `asyncio` TCP transport with actual process termination.
 
-You can shoot the leader in the head. Mid-write. On a live TCP socket. **The cluster does not care.** It elects a new leader, finishes the job, and loses **zero bytes** of committed data. Every single time.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full state-transition
+diagram, the safety-property proofs this test suite targets, and a
+postmortem of three correctness bugs surfaced during development.
 
----
+## Protocol implementation surface
 
-## 🔥 WHY THIS PROJECT OBLITERATES THE COMPETITION
+- **Leader election**: randomized election timeouts (uniform jitter,
+  per-node RNG seeded independently) to bound split-vote probability;
+  `RequestVote` handling enforces the log-completeness check
+  (`lastLogTerm`, `lastLogIndex` comparison) required for Leader
+  Completeness.
+- **Log replication**: `AppendEntries` consistency check via
+  `(prevLogIndex, prevLogTerm)`; conflicting suffixes are truncated and
+  overwritten per the paper's log-matching invariant; `nextIndex`/
+  `matchIndex` tracked per-follower on the leader, with decrement-and-
+  retry backoff on consistency-check failure.
+- **Commit safety**: `commitIndex` advancement restricted to entries
+  replicated to a quorum **from the leader's current term** — the
+  Figure-8 safety constraint that prevents a subtle class of
+  post-failover data-loss bugs where an old-term entry gets
+  prematurely committed by indirect majority count.
+- **State machine application**: idempotent by log index (`apply()` is
+  a no-op for any index at or below the highest already applied),
+  required because `lastApplied` is volatile state that resets to 0 on
+  restart — a rejoining node legitimately re-delivers its pre-crash
+  prefix.
 
-Most "distributed systems" side projects are a REST API with a database behind it and a README claiming "scalability." **This is the real thing.** This project tackles the single hardest, most respected, most feared problem in all of distributed computing — **consensus under failure** — and solves it correctly, provably, and repeatably.
+## Test topology
 
-- 🧠 **Full Raft protocol** — leader election, log replication, commit safety, split-brain prevention. Not a subset. Not a simplification. **All of it.**
-- ⚔️ **Chaos-tested to the bone** — leader assassination, network partitions, double crashes, cold restarts. It survives **everything** thrown at it.
-- 🛰️ **Real TCP sockets, real asyncio, real distributed processes** — not a fake in-memory toy pretending to be a network.
-- 🧪 **23/23 tests passing** — including four that spin up **actual servers on actual ports** and kill them **for real**.
-- 🪶 **Zero external dependencies for the core algorithm.** Pure Python stdlib. No frameworks. No crutches. Just the algorithm, executing flawlessly.
-- 🐛 **Three real, documented bugs found and crushed during development** — because finding bugs through relentless testing is what separates engineers from people who just hope their code works.
+| Property under test | Harness | File |
+|---|---|---|
+| Election Safety (at most 1 leader per term) | deterministic sim | `test_election.py` |
+| Log Matching invariant, ordered commit | deterministic sim | `test_log_replication.py` |
+| State Machine Safety under leader failure | deterministic sim | `test_failure_recovery.py` |
+| Availability + Safety under network partition | deterministic sim | `test_partition.py` |
+| Idempotent apply, KV op semantics | deterministic sim | `test_state_machine.py` |
+| Same invariants, real socket I/O + real process kill | asyncio/TCP | `test_real_network.py` |
 
----
+The deterministic harness (`raft/simulator.py`) models the network as a
+synchronous message-passing system with injectable partition/drop/kill/
+restart operations, making adversarial scheduling (leader crash mid-
+quorum, partition-then-heal) a reproducible unit test rather than a
+timing-dependent integration test. The identical `RaftNode` class, zero
+modification, is wrapped by `kvstore/server.py` with real
+`asyncio.start_server`/`asyncio.open_connection` sockets for the
+`test_real_network.py` suite — which is where a genuine liveness gap
+(client retry exhaustion during the roughly-one-election-timeout window
+with no elected leader) was caught under real wall-clock scheduling,
+invisible to the zero-latency deterministic harness.
 
-## 🎯 THE CORE CLAIM (AND IT'S PROVEN, NOT PROMISED)
+## Complexity and design notes
 
-```
-   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐
-   │   NODE 1     │        │   NODE 2 ☠️   │        │   NODE 3     │
-   │  follower    │        │  LEADER      │        │  follower    │
-   └─────────────┘        └──────┬──────┘        └─────────────┘
-                                  │
-                          💀 YOU KILL IT 💀
-                                  │
-                                  ▼
-   ┌─────────────┐        ┌─────────────┐        ┌─────────────┐
-   │   NODE 1     │        │   NODE 2      │        │  NODE 3 👑   │
-   │  follower    │        │   DEAD        │        │  NEW LEADER  │
-   └─────────────┘        └─────────────┘        └─────────────┘
+- `RaftNode` state transitions are O(1) per RPC excluding log
+  operations; `ReplicatedLog.truncate_from`/`slice_from` are O(n) in the
+  conflicting-suffix length, consistent with the reference
+  implementation's amortized cost model.
+- `_advance_commit_index` is O(n·f) worst case per leader tick (n = log
+  entries since last commit, f = follower count) — acceptable at this
+  scale; a production system would maintain a sorted `matchIndex`
+  structure for O(f log f) median-finding instead of the linear scan
+  used here.
+- No log compaction/snapshotting: unbounded log growth, O(n) full-log
+  transfer to a far-behind follower. Explicitly out of scope, documented
+  in ARCHITECTURE.md.
+- No linearizable reads (no read-index/lease-read protocol implemented):
+  `GET` is served from local state on whichever node receives it, which
+  is safe under normal operation but can return stale data from an
+  isolated former leader that hasn't yet stepped down.
 
-            ZERO DATA LOST. ZERO DOWNTIME. ZERO EXCUSES.
-```
+## Running it
 
-This isn't a diagram of what *should* happen. **This is what actually happens**, verified by an automated test that kills a live process over a real socket and asserts — with code, not vibes — that every write survives.
-
----
-
-## 🚀 THE UNSTOPPABLE FEATURE LIST
-
-| Capability | Status |
-|---|---|
-| Leader Election (Election Safety guaranteed) | ✅ BULLETPROOF |
-| Log Replication with full consistency checking | ✅ BULLETPROOF |
-| Crash Recovery with ZERO data loss | ✅ BULLETPROOF |
-| Split-Brain Prevention under network partition | ✅ BULLETPROOF |
-| Idempotent state machine application | ✅ BULLETPROOF |
-| Real TCP transport layer | ✅ BULLETPROOF |
-| Client-side automatic leader discovery + retry | ✅ BULLETPROOF |
-| Deterministic chaos-testing simulator | ✅ BULLETPROOF |
-
----
-
-## ⚙️ THE ENGINE ROOM
-
-At its core, this project implements **UCB-grade rigor** applied to the most feared algorithm in the systems canon:
-
-- **`raft/node.py`** — the beating heart. Pure, transport-agnostic, mathematically faithful to the original Raft paper (Ongaro & Ousterhout).
-- **`raft/simulator.py`** — a **deterministic chaos engine** capable of killing nodes, partitioning networks, and restarting crashed processes on command, all inside a single unit test.
-- **`kvstore/server.py`** — the same unmodified consensus logic, now running for real, over real `asyncio` sockets, on real ports, like a real distributed system because **it is one.**
-- **`kvstore/client.py`** — a client so resilient it doesn't even blink when the entire leadership of the cluster changes mid-request.
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full dataflow, the exact safety properties this system guarantees, and a full account of the real bugs this project's own testing found and destroyed.
-
----
-
-## 🧨 RUN IT. BREAK IT. WATCH IT SURVIVE.
+Zero third-party dependencies for the consensus/replication core —
+`asyncio`, `dataclasses`, `enum`, `random` from stdlib only. `pytest` is
+optional tooling for structured test output.
 
 ```bash
 pip install -r requirements.txt
-pytest tests/ -v          # 23 tests. All green. Every time.
-python scripts/run_demo.py   # watch a live 5-node cluster survive an actual assassination
+pytest tests/ -v          # 23 tests
+python scripts/run_demo.py   # 5-node cluster, live leader termination, live failover
 ```
 
-No mocks. No stubs. No "trust me." **Run it yourself.**
+## Repository layout
 
----
-
-## 🏆 WHAT THIS PROVES
-
-Building Raft correctly is one of the most respected rites of passage in distributed systems engineering — precisely **because it is almost impossible to fake.** Get leader election subtly wrong and you get split-brain. Get log matching subtly wrong and you silently corrupt data. Get commit safety subtly wrong and a "committed" write vanishes into the void the moment the wrong node crashes at the wrong time.
-
-**This implementation gets it right. Provably. Repeatably. Under fire.**
-
-This is the algorithm etcd runs. This is the algorithm CockroachDB runs. This is the algorithm keeping the world's container orchestration systems from falling over. **And it's sitting right here, built from scratch, fully tested, ready to read.**
+```
+src/
+  raft/
+    messages.py    # RequestVote{Request,Response}, AppendEntries{Request,Response}, LogEntry
+    log.py          # ReplicatedLog: 1-indexed per the paper's convention, O(1) term_at/last_index
+    node.py          # RaftNode: transport-agnostic state machine, all RPC handler logic
+    simulator.py      # deterministic discrete-event cluster harness w/ chaos primitives
+  kvstore/
+    protocol.py     # newline-delimited JSON wire format for RPC + client req/resp
+    server.py        # asyncio TCP transport adapter over RaftNode
+    client.py         # leader-discovery client, multi-round retry w/ backoff
+    state_machine.py   # KV apply logic, idempotent by log index
+tests/                 # see table above
+scripts/run_demo.py    # live 5-node demo w/ real process termination
+```
