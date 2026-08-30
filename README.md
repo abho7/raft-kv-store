@@ -1,6 +1,7 @@
 # Raft KV Store
 
-[![tests](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/tests.yml/badge.svg)](https://github.com/YOUR_USERNAME/YOUR_REPO_NAME/actions/workflows/tests.yml)
+[![tests](https://github.com/abho7/raft-kv-store/actions/workflows/tests.yml/badge.svg)](https://github.com/abho7/raft-kv-store/actions/workflows/tests.yml)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 A linearizable-writes, replicated key-value store implementing the Raft
 consensus protocol (Ongaro & Ousterhout, 2014) from first principles:
