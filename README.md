@@ -21,6 +21,13 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full state-transition
 diagram, the safety-property proofs this test suite targets, and a
 postmortem of three correctness bugs surfaced during development.
 
+Two other repositories build on this engine without modifying it:
+[raft-chaos-testing](https://github.com/abho7/raft-chaos-testing) drives it
+under per-link drop and delay injection, and
+[ml-infra-platform](https://github.com/abho7/ml-infra-platform) composes it
+with an HNSW index and a training framework. This repository is the
+consensus engine itself; start here.
+
 ## Protocol implementation surface
 
 - **Leader election**: randomized election timeouts (uniform jitter,
