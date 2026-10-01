@@ -1,0 +1,1 @@
+mutant=no_logcheck delay=0 seeds=200 ticks=3000 failing_seeds=199 by_invariant={'LC': 199} first=(0, 255, 'LC') totals={'proposals': 17016, 'kills': 714, 'restarts': 608, 'partitions': 703, 'committed': 319} secs=24.8

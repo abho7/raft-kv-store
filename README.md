@@ -13,7 +13,7 @@ constraint from Figure 8 of the paper.
 **Guarantee proven, not asserted:** under `f` node failures in a cluster
 of `2f+1`, the system retains availability and never violates State
 Machine Safety — no two nodes ever apply divergent commands at the same
-log index, and no committed entry is ever lost. Verified across 23
+log index, and no committed entry is ever lost. Verified across 24
 tests spanning both a deterministic discrete-event simulation harness
 and a real `asyncio` TCP transport with actual process termination.
 
@@ -101,7 +101,7 @@ optional tooling for structured test output.
 
 ```bash
 pip install -r requirements.txt
-pytest tests/ -v          # 23 tests
+pytest tests/ -v          # 24 tests
 python scripts/run_demo.py   # 5-node cluster, live leader termination, live failover
 ```
 
@@ -122,3 +122,18 @@ src/
 tests/                 # see table above
 scripts/run_demo.py    # live 5-node demo w/ real process termination
 ```
+
+## Experiments
+
+`experiments/` holds the verification work that backs the safety claims above:
+a randomized chaos fuzzer that re-checks Election Safety, State Machine Safety
+and Leader Completeness after every tick; `DelayedCluster`, a latency-injecting
+simulator; mutation analysis, which breaks a rule on purpose and confirms the
+suite notices; and failover measurements taken over real sockets rather than in
+simulation. `experiments/README.md` has the commands to reproduce each of them,
+and `results/` holds the raw output of the runs.
+
+`tests/test_figure8.py` is a deterministic reproduction of Figure 8 from the
+Raft paper: the case where an entry replicated on a majority can still be
+overwritten, which is why a leader may not commit an entry from an earlier term
+on replica count alone.

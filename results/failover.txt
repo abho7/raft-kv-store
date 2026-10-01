@@ -1,0 +1,9 @@
+$ python experiments/failover.py --mode election --trials 30
+election_latency_ms trials=30 median=357 p5=352 p95=367 min=352 max=369
+$ python experiments/failover.py --trials 20 --backoff {0.05,0.1,0.2,0.3}
+backoff=0.05 max_retries=8 trials=20 write_succeeded=20 data_intact=20 median_ms=380 min_ms=375 max_ms=387
+backoff=0.1 max_retries=8 trials=20 write_succeeded=20 data_intact=20 median_ms=420 min_ms=417 max_ms=431
+backoff=0.2 max_retries=8 trials=20 write_succeeded=20 data_intact=20 median_ms=413 min_ms=411 max_ms=417
+backoff=0.3 max_retries=8 trials=20 write_succeeded=20 data_intact=20 median_ms=615 min_ms=611 max_ms=619
+$ python experiments/failover.py --trials 20 --backoff 0.3 --max-retries 1   # mutant M4
+backoff=0.3 max_retries=1 trials=20 write_succeeded=0 data_intact=0

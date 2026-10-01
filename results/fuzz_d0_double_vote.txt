@@ -1,0 +1,1 @@
+mutant=double_vote delay=0 seeds=200 ticks=3000 failing_seeds=8 by_invariant={'ES': 8} first=(40, 2066, 'ES') totals={'proposals': 114486, 'kills': 5330, 'restarts': 4968, 'partitions': 4416, 'committed': 103779} secs=312.3

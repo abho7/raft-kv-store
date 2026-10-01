@@ -1,0 +1,4 @@
+mutant=none passed=24 failed=0 []
+mutant=fig8 passed=23 failed=1 ['test_figure8_old_term_entry_is_not_committed_by_replica_count']
+mutant=no_logcheck passed=24 failed=0 []
+mutant=double_vote passed=24 failed=0 []

@@ -1,0 +1,1 @@
+mutant=none delay=4 seeds=200 ticks=3000 failing_seeds=0 by_invariant={} first=None totals={'proposals': 86699, 'kills': 5449, 'restarts': 5076, 'partitions': 4516, 'committed': 77047} secs=262.6
